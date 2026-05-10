@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NEON DRIFTER: PRO EDITION</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        #ui { 
+            position: absolute; top: 20px; left: 20px; color: #0ff; 
+            font-size: 20px; text-shadow: 0 0 8px #0ff; z-index: 100;
+        }
+        #restart { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #f0f; font-size: 40px; text-align: center; display: none; cursor: pointer;
+            background: rgba(0,0,0,0.8); padding: 20px; border: 2px solid #f0f;
+        }
+        .high-score { color: #ff0; font-size: 16px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        SCORE: <span id="scoreUI">0</span><br>
+        SPEED: <span id="speedUI">0</span><br>
+        <div class="high-score">BEST: <span id="bestUI">0</span></div>
+    </div>
+    
+    <div id="restart" onclick="location.reload()">
+        CRITICAL FAILURE<br>
+        <span id="finalScore" style="font-size:24px; color:#fff;"></span><br>
+        <span style="font-size:18px; color:#0ff;">CLICK TO RE-SYNC</span>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050010, 0.04);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // --- Environment ---
+        const sun = new THREE.Mesh(new THREE.CircleGeometry(15, 32), new THREE.MeshBasicMaterial({ color: 0xff0066 }));
+        sun.position.set(0, 4, -90);
+        scene.add(sun);
+
+        const segments = [];
+        for(let i=0; i<10; i++) {
+            const seg = new THREE.GridHelper(20, 10, 0xff00ff, 0x220022);
+            seg.position.z = -i * 20;
+            segments.push(seg);
+            scene.add(seg);
+        }
+
+        // --- Car ---
+        const car = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 1.5), new THREE.MeshBasicMaterial({color: 0x00ffff, wireframe: true}));
+        car.position.y = 0.5;
+        scene.add(car);
+
+        // --- Game State & High Score ---
+        let speed = 25; 
+        let score = 0;
+        let running = true;
+        let lastTime = performance.now();
+        const keys = {};
+        const obstacles = [];
+        
+        // Load High Score from Browser Memory
+        let highScore = localStorage.getItem('neonHighscore') || 0;
+        document.getElementById('bestUI').innerText = Math.floor(highScore);
+
+        window.onkeydown = (e) => keys[e.code] = true;
+        window.onkeyup = (e) => keys[e.code] = false;
+
+        function spawn() {
+            const obs = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true }));
+            obs.position.set(Math.random() * 16 - 8, 1, -120);
+            scene.add(obs);
+            obstacles.push(obs);
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            if(!running) return;
+
+            const dt = (now - lastTime) / 1000;
+            lastTime = now;
+
+            // --- Fixed Steering (Slower & Smoother) ---
+            const turnSpeed = 12; 
+            if(keys['ArrowLeft'] || keys['KeyA']) car.position.x -= turnSpeed * dt;
+            if(keys['ArrowRight'] || keys['KeyD']) car.position.x += turnSpeed * dt;
+            car.position.x = THREE.MathUtils.clamp(car.position.x, -9, 9);
+            
+            // Visual Lean (Smooth rotation)
+            car.rotation.z = THREE.MathUtils.lerp(car.rotation.z, -car.position.x * 0.03, 0.1);
+
+            // --- Progression ---
+            speed += 0.8 * dt; // Gradually speeds up
+            score += speed * dt; // Score based on travel
+            
+            document.getElementById('scoreUI').innerText = Math.floor(score);
+            document.getElementById('speedUI').innerText = Math.floor(speed);
+
+            // --- World Movement ---
+            segments.forEach(s => {
+                s.position.z += speed * dt;
+                if(s.position.z > 20) s.position.z = -180;
+            });
+
+            // --- Obstacle Logic ---
+            if(Math.random() < 0.04) spawn();
+            for(let i=obstacles.length-1; i>=0; i--) {
+                obstacles[i].position.z += speed * dt;
+                
+                // Collision Detection
+                if(obstacles[i].position.distanceTo(car.position) < 1.4) {
+                    endGame();
+                }
+
+                if(obstacles[i].position.z > 10) {
+                    scene.remove(obstacles[i]);
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            camera.position.lerp(new THREE.Vector3(car.position.x * 0.4, 2.5, 6), 0.08);
+            camera.lookAt(car.position.x, 0, -10);
+            renderer.render(scene, camera);
+        }
+
+        function endGame() {
+            running = false;
+            if(score > highScore) {
+                highScore = score;
+                localStorage.setItem('neonHighscore', highScore);
+            }
+            document.getElementById('finalScore').innerText = "FINAL SCORE: " + Math.floor(score);
+            document.getElementById('restart').style.display = 'block';
+        }
+
+        animate(performance.now());
+    </script>
+</body>
+</html>
